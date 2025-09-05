@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 // تأكد من أن المسارات صحيحة
-import googleSheetsService from '../services/GoogleSheetsService.js'; 
-import cartService from '../services/cartService.js';
+import googleSheetsService from '../services/GoogleSheetsService'; 
+import cartService from '../services/cartService';
 
 const AppContext = createContext();
 
