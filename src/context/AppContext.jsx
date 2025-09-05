@@ -1,192 +1,142 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import googleSheetsService from '../services/googleSheetsService';
-import cartService from '../services/cartService';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+// تأكد من أن المسارات صحيحة
+import googleSheetsService from '../services/GoogleSheetsService.js'; 
+import cartService from '../services/cartService.js';
 
-// إنشاء Context
 const AppContext = createContext();
 
-// الحالة الأولية
 const initialState = {
   products: [],
   categories: [],
   cart: [],
-  loading: false,
+  loading: true, // ابدأ بالتحميل مباشرة
   error: null,
   currentCategory: null,
   searchQuery: ''
 };
 
-// Reducer لإدارة الحالة
 const appReducer = (state, action) => {
   switch (action.type) {
-    case 'SET_LOADING':
-      return { ...state, loading: action.payload };
-    
-    case 'SET_ERROR':
-      return { ...state, error: action.payload, loading: false };
-    
-    case 'SET_PRODUCTS':
-      return { ...state, products: action.payload, loading: false, error: null };
-    
-    case 'SET_CATEGORIES':
-      return { ...state, categories: action.payload };
-    
+    case 'START_LOADING':
+      return { ...state, loading: true, error: null };
+    case 'DATA_SUCCESS':
+      return {
+        ...state,
+        loading: false,
+        products: action.payload.products,
+        categories: action.payload.categories,
+        error: null,
+      };
+    case 'DATA_FAIL':
+      return { ...state, loading: false, error: action.payload };
     case 'SET_CART':
       return { ...state, cart: action.payload };
-    
     case 'SET_CURRENT_CATEGORY':
-      return { ...state, currentCategory: action.payload };
-    
+      return { ...state, currentCategory: action.payload, searchQuery: '' };
     case 'SET_SEARCH_QUERY':
-      return { ...state, searchQuery: action.payload };
-    
-    case 'ADD_TO_CART':
-      const updatedCart = cartService.addToCart(action.payload.product, action.payload.quantity);
-      return { ...state, cart: updatedCart };
-    
-    case 'REMOVE_FROM_CART':
-      const cartAfterRemove = cartService.removeFromCart(action.payload);
-      return { ...state, cart: cartAfterRemove };
-    
-    case 'UPDATE_CART_QUANTITY':
-      const cartAfterUpdate = cartService.updateQuantity(action.payload.productId, action.payload.quantity);
-      return { ...state, cart: cartAfterUpdate };
-    
-    case 'CLEAR_CART':
-      const clearedCart = cartService.clearCart();
-      return { ...state, cart: clearedCart };
-    
+      return { ...state, searchQuery: action.payload, currentCategory: null };
     default:
       return state;
   }
 };
 
-// Provider Component
 export const AppProvider = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
 
-  // تحميل البيانات الأولية
-  useEffect(() => {
-    loadInitialData();
-    loadCart();
+  const loadInitialData = useCallback(async () => {
+    dispatch({ type: 'START_LOADING' });
+    try {
+      const products = await googleSheetsService.fetchProducts();
+      
+      // إذا فشل جلب البيانات من الشبكة (رجع مصفوفة فارغة)
+      if (!products || products.length === 0) {
+        // حاول أن تبحث في الذاكرة المحلية كخطة بديلة
+        const cachedData = localStorage.getItem('products_cache');
+        if (cachedData) {
+          const parsed = JSON.parse(cachedData);
+          console.log('Using data from localStorage fallback.');
+          const categories = [...new Set(parsed.products.map(p => p.category).filter(Boolean))];
+          dispatch({ type: 'DATA_SUCCESS', payload: { products: parsed.products, categories } });
+          return; // توقف هنا لأننا وجدنا بيانات
+        }
+        // إذا لم نجد أي شيء، اعرض رسالة خطأ
+        throw new Error('فشل جلب البيانات من المصدر ولم يتم العثور على نسخة احتياطية.');
+      }
+
+      // إذا نجحنا في جلب البيانات
+      const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+      dispatch({ type: 'DATA_SUCCESS', payload: { products, categories } });
+      
+      // احفظ نسخة في الذاكرة المحلية للمستقبل
+      localStorage.setItem('products_cache', JSON.stringify({ products, timestamp: Date.now() }));
+
+    } catch (error) {
+      console.error('Error in loadInitialData:', error);
+      dispatch({ type: 'DATA_FAIL', payload: error.message });
+    }
   }, []);
 
-  // تحميل البيانات من Google Sheets
-  const loadInitialData = async () => {
-    try {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      
-      const products = await googleSheetsService.fetchProducts();
-      const categories = await googleSheetsService.getCategories();
-      
-      dispatch({ type: 'SET_PRODUCTS', payload: products });
-      dispatch({ type: 'SET_CATEGORIES', payload: categories });
-    } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: 'خطأ في تحميل البيانات' });
-      console.error('خطأ في تحميل البيانات:', error);
-    }
-  };
-
-  // تحميل السلة
-  const loadCart = () => {
+  useEffect(() => {
+    loadInitialData();
     const cart = cartService.getCart();
     dispatch({ type: 'SET_CART', payload: cart });
-  };
+  }, [loadInitialData]);
 
-  // إضافة منتج للسلة
+  // --- بقية الدوال تبقى كما هي ---
+
   const addToCart = (product, quantity = 1) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity } });
+    cartService.addToCart(product, quantity);
+    dispatch({ type: 'SET_CART', payload: cartService.getCart() });
   };
 
-  // إزالة منتج من السلة
   const removeFromCart = (productId) => {
-    dispatch({ type: 'REMOVE_FROM_CART', payload: productId });
+    cartService.removeFromCart(productId);
+    dispatch({ type: 'SET_CART', payload: cartService.getCart() });
   };
 
-  // تحديث كمية منتج في السلة
   const updateCartQuantity = (productId, quantity) => {
-    dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { productId, quantity } });
+    cartService.updateQuantity(productId, quantity);
+    dispatch({ type: 'SET_CART', payload: cartService.getCart() });
   };
 
-  // مسح السلة
   const clearCart = () => {
-    dispatch({ type: 'CLEAR_CART' });
+    cartService.clearCart();
+    dispatch({ type: 'SET_CART', payload: cartService.getCart() });
   };
 
-  // تحديد القسم الحالي
   const setCurrentCategory = (category) => {
     dispatch({ type: 'SET_CURRENT_CATEGORY', payload: category });
   };
 
-  // تحديد استعلام البحث
   const setSearchQuery = (query) => {
     dispatch({ type: 'SET_SEARCH_QUERY', payload: query });
   };
 
-  // الحصول على المنتجات المفلترة
   const getFilteredProducts = () => {
     let filtered = state.products;
-
-    // فلترة حسب القسم
     if (state.currentCategory) {
-      filtered = filtered.filter(product => product.category === state.currentCategory);
+      filtered = filtered.filter(p => p.category === state.currentCategory);
     }
-
-    // فلترة حسب البحث
     if (state.searchQuery) {
       const query = state.searchQuery.toLowerCase();
-      filtered = filtered.filter(product =>
-        product.name.toLowerCase().includes(query) ||
-        product.description.toLowerCase().includes(query) ||
-        product.category.toLowerCase().includes(query)
+      filtered = filtered.filter(p =>
+        p.name?.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query)
       );
     }
-
     return filtered;
   };
 
-  // الحصول على المنتجات المميزة
   const getFeaturedProducts = () => {
-    return state.products.filter(product => product.featured);
+    return state.products.filter(p => p.featured);
   };
 
-  // الحصول على منتج بالمعرف
   const getProductById = (id) => {
-    return state.products.find(product => product.id === parseInt(id));
+    return state.products.find(p => p.id === parseInt(id));
   };
 
-  // الحصول على عدد العناصر في السلة
-  const getCartItemsCount = () => {
-    return cartService.getCartItemsCount();
-  };
-
-  // الحصول على إجمالي السلة
-  const getCartTotal = () => {
-    return cartService.getCartTotal();
-  };
-
-  // إرسال الطلب عبر WhatsApp
-  const sendOrderToWhatsApp = () => {
-    cartService.sendOrderToWhatsApp();
-  };
-
-  // تنسيق السعر
-  const formatPrice = (price) => {
-    return cartService.formatPrice(price);
-  };
-
-  // إعادة تحميل البيانات
-  const refreshData = () => {
-    googleSheetsService.clearCache();
-    loadInitialData();
-  };
-
-  // القيم المتاحة في Context
   const value = {
-    // الحالة
     ...state,
-    
-    // الوظائف
     addToCart,
     removeFromCart,
     updateCartQuantity,
@@ -196,12 +146,11 @@ export const AppProvider = ({ children }) => {
     getFilteredProducts,
     getFeaturedProducts,
     getProductById,
-    getCartItemsCount,
-    getCartTotal,
-    sendOrderToWhatsApp,
-    formatPrice,
-    refreshData,
-    loadInitialData
+    getCartItemsCount: () => cartService.getCartItemsCount(),
+    getCartTotal: () => cartService.getCartTotal(),
+    sendOrderToWhatsApp: () => cartService.sendOrderToWhatsApp(),
+    formatPrice: (price) => cartService.formatPrice(price),
+    refreshData: loadInitialData,
   };
 
   return (
@@ -211,7 +160,6 @@ export const AppProvider = ({ children }) => {
   );
 };
 
-// Hook لاستخدام Context
 export const useApp = () => {
   const context = useContext(AppContext);
   if (!context) {
@@ -219,6 +167,3 @@ export const useApp = () => {
   }
   return context;
 };
-
-export default AppContext;
-
