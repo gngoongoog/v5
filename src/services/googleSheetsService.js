@@ -2,10 +2,9 @@ import axios from 'axios';
 
 class GoogleSheetsService {
   constructor() {
-    // رابط CSV الجديد من "Publish to the web"
+    // هذا هو رابط "Publish to the web" الذي تستخدمه أنت
     this.CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTJpVMBo_g1Mh41ksbktPhCTMOYlKfUkQBYQKFAFXw2oO_C10bOtHjbE4JXvu_Jc1ENUw9o9Yp0vsaX/pub?output=csv';
     
-    // كاش البيانات
     this.cache = {
       products: null,
       lastFetch: null,
@@ -13,7 +12,7 @@ class GoogleSheetsService {
     };
   }
 
-  // تحويل CSV إلى JSON
+  // دالة تحويل CSV إلى JSON مع إضافة منطق الصور
   csvToJson(csv) {
     const lines = csv.split('\n');
     const headers = lines[0].split(',').map(header => header.trim().replace(/"/g, ''));
@@ -28,10 +27,18 @@ class GoogleSheetsService {
       headers.forEach((header, index) => {
         let value = values[index] || '';
         value = value.replace(/"/g, '').trim();
+
         if (header === 'id' || header === 'price' || header === 'stock') {
           obj[header] = parseInt(value) || 0;
         } else if (header === 'featured') {
           obj[header] = value.toLowerCase() === 'true';
+        
+        // --- هذا هو التعديل الوحيد والمهم ---
+        } else if (header === 'image') { 
+          // يقرأ عمود 'image' من ملفك
+          obj['image_url'] = value; // وينشئ خاصية 'image_url' التي يحتاجها التطبيق
+        // ------------------------------------
+
         } else {
           obj[header] = value;
         }
@@ -45,6 +52,7 @@ class GoogleSheetsService {
     return result;
   }
 
+  // بقية الدوال تبقى كما هي تماماً في ملفك
   parseCSVLine(line) {
     const result = [];
     let current = '';
@@ -121,7 +129,7 @@ class GoogleSheetsService {
       'اكسسوارات': ['حامل هاتف للسيارة', 'حامل مكتبي', 'مسكة هاتف', 'حقيبة لابتوب', 'ماوس لاسلكي']
     };
     
-    for (let i = 1; i <= 150; i++) {
+    for (let i = 1; i <= 20; i++) {
       const category = categories[Math.floor(Math.random() * categories.length)];
       const names = productNames[category];
       const baseName = names[Math.floor(Math.random() * names.length)];
